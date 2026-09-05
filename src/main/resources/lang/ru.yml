@@ -1,0 +1,54 @@
+# Плейсхолдеры: %player%, %code%, %ip%, %seconds%, %telegram%
+prefix: "&8[&bTgAuth&8] &r"
+
+join:
+  need-link-code: "&eВы не привязаны к Telegram. Откройте бота &f%bot% &eи введите команду &a/link %code% &eчтобы войти."
+  need-link-reminder: "&7Ваш код для привязки: &a%code% &7(отправьте боту &f/link %code%&7). Осталось &f%seconds%с&7."
+  need-confirm: "&eОтправлен запрос на подтверждение входа в Telegram. Подтвердите вход в вашем боте."
+  premium-auto-login: "&aВы вошли автоматически как доверенный лицензионный аккаунт."
+  already-authenticated: "&aВы уже авторизованы."
+
+link:
+  success-ingame: "&aВаш аккаунт успешно привязан к Telegram! Добро пожаловать."
+  success-telegram: "✅ Аккаунт %player% успешно привязан к вашему Telegram."
+  invalid-code: "❌ Неверный или истёкший код."
+  already-linked-telegram: "❌ К вашему Telegram уже привязан другой игровой аккаунт."
+  already-linked-player: "❌ Этот игровой аккаунт уже привязан к другому Telegram."
+  code-expired-kick: "&cВремя на привязку истекло. Подключитесь заново."
+
+confirm:
+  message: "🔐 Подтвердите вход в игру\nИгрок: %player%\nIP: %ip%\n\nЕсли это были не вы — нажмите «Отклонить»."
+  button-confirm: "✅ Подтвердить"
+  button-reject: "❌ Отклонить"
+  confirmed-telegram: "✅ Вход подтверждён."
+  rejected-telegram: "❌ Вход отклонён."
+  confirmed-ingame: "&aВход подтверждён через Telegram. Добро пожаловать!"
+  rejected-kick: "&cВход отклонён через Telegram."
+  timeout-kick: "&cВремя на подтверждение входа истекло."
+
+commands:
+  no-permission: "&cУ вас нет прав на это."
+  player-only: "&cЭта команда только для игроков."
+  reload-success: "&aКонфигурация перезагружена."
+  usage: "&eИспользование: /tgauth <reload|unlink|forcelink|info|userinfo|fastlogin> [игрок] [telegramId]"
+  player-not-found: "&cИгрок не найден."
+  unlink-success: "&aАккаунт %player% отвязан от Telegram."
+  unlink-not-linked: "&cЭтот аккаунт не привязан."
+  forcelink-success: "&aАккаунт %player% принудительно привязан к Telegram ID %telegram%."
+  info-linked: "&7%player%: привязан к Telegram ID &f%telegram%"
+  info-not-linked: "&7%player%: не привязан"
+  userinfo-header: "&8[TgAuth] &7Информация об игроке &f%player%&7:"
+  userinfo-not-linked: "&8[TgAuth] &7%player%: не привязан к Telegram."
+  userinfo-telegram-id: "&7  Telegram ID: &f%telegram%"
+  userinfo-telegram-username: "&7  Telegram: &f%tguser% &7(для связи с игроком)"
+  userinfo-username-unset: "&7(юзернейм не установлен)"
+  userinfo-premium: "&7  В премиум-листе FastLogin: %premium%"
+  userinfo-premium-yes: "&aда"
+  userinfo-premium-no: "&cнет"
+  tgcode-not-needed: "&7Вам не нужен код привязки прямо сейчас."
+  tgcode-sent: "&7Ваш код для привязки: &a%code%"
+
+telegram:
+  start: "Привет! Это бот авторизации для сервера. Используйте /link <код>, который вы видите в чате Minecraft при входе, чтобы привязать аккаунт."
+  unknown-command: "Неизвестная команда. Используйте /link <код>."
+  link-usage: "Использование: /link <код>"

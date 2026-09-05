@@ -1,0 +1,24 @@
+name: TgAuth
+version: '1.0.0'
+main: net.millyland.auth.TgAuthPlugin
+api-version: '1.21'
+author: TgAuth
+description: Telegram-based authorization for your server, with optional FastLogin integration.
+softdepend: [FastLogin]
+
+commands:
+  tgauth:
+    description: Admin command for TgAuth
+    usage: /tgauth <reload|unlink|forcelink|info|userinfo|fastlogin> [player] [telegramId]
+    permission: tgauth.admin
+  tgcode:
+    description: Resend your Telegram linking code
+    usage: /tgcode
+
+permissions:
+  tgauth.admin:
+    description: Allows administration of TgAuth
+    default: op
+  tgauth.bypass:
+    description: Allows bypassing the authorization requirement
+    default: false

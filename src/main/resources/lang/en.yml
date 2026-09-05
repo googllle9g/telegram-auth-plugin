@@ -1,0 +1,54 @@
+# Placeholders: %player%, %code%, %ip%, %seconds%, %telegram%
+prefix: "&8[&bTgAuth&8] &r"
+
+join:
+  need-link-code: "&eYou are not linked to Telegram. Open the bot &f%bot% &eand send &a/link %code% &eto log in."
+  need-link-reminder: "&7Your link code: &a%code% &7(send &f/link %code% &7to the bot). &f%seconds%s &7left."
+  need-confirm: "&eA login confirmation request has been sent to Telegram. Please confirm it."
+  premium-auto-login: "&aYou were logged in automatically as a trusted premium account."
+  already-authenticated: "&aYou are already authenticated."
+
+link:
+  success-ingame: "&aYour account has been linked to Telegram! Welcome."
+  success-telegram: "✅ Account %player% has been linked to your Telegram."
+  invalid-code: "❌ Invalid or expired code."
+  already-linked-telegram: "❌ Your Telegram is already linked to another game account."
+  already-linked-player: "❌ This game account is already linked to another Telegram."
+  code-expired-kick: "&cLinking time expired. Please reconnect."
+
+confirm:
+  message: "🔐 Confirm login\nPlayer: %player%\nIP: %ip%\n\nIf this wasn't you, tap Reject."
+  button-confirm: "✅ Confirm"
+  button-reject: "❌ Reject"
+  confirmed-telegram: "✅ Login confirmed."
+  rejected-telegram: "❌ Login rejected."
+  confirmed-ingame: "&aLogin confirmed via Telegram. Welcome!"
+  rejected-kick: "&cLogin rejected via Telegram."
+  timeout-kick: "&cLogin confirmation timed out."
+
+commands:
+  no-permission: "&cYou don't have permission to do that."
+  player-only: "&cThis command is for players only."
+  reload-success: "&aConfiguration reloaded."
+  usage: "&eUsage: /tgauth <reload|unlink|forcelink|info|userinfo|fastlogin> [player] [telegramId]"
+  player-not-found: "&cPlayer not found."
+  unlink-success: "&aAccount %player% unlinked from Telegram."
+  unlink-not-linked: "&cThis account is not linked."
+  forcelink-success: "&aAccount %player% force-linked to Telegram ID %telegram%."
+  info-linked: "&7%player%: linked to Telegram ID &f%telegram%"
+  info-not-linked: "&7%player%: not linked"
+  userinfo-header: "&8[TgAuth] &7Info for &f%player%&7:"
+  userinfo-not-linked: "&8[TgAuth] &7%player%: not linked to Telegram."
+  userinfo-telegram-id: "&7  Telegram ID: &f%telegram%"
+  userinfo-telegram-username: "&7  Telegram: &f%tguser% &7(to contact the player)"
+  userinfo-username-unset: "&7(no username set)"
+  userinfo-premium: "&7  In FastLogin's premium list: %premium%"
+  userinfo-premium-yes: "&ayes"
+  userinfo-premium-no: "&cno"
+  tgcode-not-needed: "&7You don't need a link code right now."
+  tgcode-sent: "&7Your link code: &a%code%"
+
+telegram:
+  start: "Hi! This is the server authorization bot. Use /link <code>, shown in Minecraft chat when you join, to link your account."
+  unknown-command: "Unknown command. Use /link <code>."
+  link-usage: "Usage: /link <code>"

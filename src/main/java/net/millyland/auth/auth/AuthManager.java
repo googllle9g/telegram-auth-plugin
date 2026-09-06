@@ -25,6 +25,23 @@ public class AuthManager {
     private final Map<String, UUID> pendingCodes = new ConcurrentHashMap<>();     // link code -> uuid
     private final Map<String, UUID> pendingConfirms = new ConcurrentHashMap<>();  // confirm token -> uuid
     private final java.util.Set<UUID> fastLoginPremiumVerified = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Map<Long, LinkAttemptThrottle> linkAttemptThrottles = new ConcurrentHashMap<>();
+
+    /** Defense in depth against distributed brute-forcing (an attacker spreading guesses across
+     *  many different Telegram accounts to dodge the per-account throttle above): a simple
+     *  global fixed-window counter of failed /link attempts, regardless of who made them. */
+    private final java.util.concurrent.atomic.AtomicInteger globalFailedLinkAttempts = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile long globalFailedWindowStart = System.currentTimeMillis();
+    private volatile long globalLockoutUntil;
+
+    /** Tracks failed /link code guesses per Telegram user, to make brute-forcing the 6-digit
+     *  code impractical - without this, nothing stops a script from trying all ~900,000
+     *  possible codes within the code's validity window. */
+    private static final class LinkAttemptThrottle {
+        int failedAttempts;
+        long windowStart;
+        long blockedUntil;
+    }
 
     public AuthManager(TgAuthPlugin plugin) {
         this.plugin = plugin;
@@ -174,47 +191,117 @@ public class AuthManager {
 
     /** Called from the Telegram thread when someone sends /link <code>. */
     public void handleLinkAttempt(String code, long telegramId, String tgUsername, long chatId) {
-        UUID uuid = pendingCodes.get(code);
-        PlayerSession session = uuid == null ? null : sessions.get(uuid);
+        long now = System.currentTimeMillis();
 
-        if (uuid == null || session == null || session.state != AuthState.AWAITING_LINK
-                || System.currentTimeMillis() > session.linkCodeExpireAt) {
-            plugin.telegram().send(chatId, plugin.lang().rawGet("link.invalid-code"));
+        if (globalLockoutUntil > now) {
+            long secondsLeft = (globalLockoutUntil - now) / 1000L + 1;
+            plugin.telegram().send(chatId, plugin.lang().rawGet("link.too-many-attempts", "%seconds%", String.valueOf(secondsLeft)));
             return;
         }
 
-        if (plugin.database().findByTelegramId(telegramId).isPresent()) {
-            plugin.telegram().send(chatId, plugin.lang().rawGet("link.already-linked-telegram"));
-            return;
+        LinkAttemptThrottle throttle = linkAttemptThrottles.computeIfAbsent(telegramId, k -> new LinkAttemptThrottle());
+
+        synchronized (throttle) {
+            if (throttle.blockedUntil > now) {
+                long secondsLeft = (throttle.blockedUntil - now) / 1000L + 1;
+                plugin.telegram().send(chatId, plugin.lang().rawGet("link.too-many-attempts", "%seconds%", String.valueOf(secondsLeft)));
+                return;
+            }
+
+            UUID uuid = pendingCodes.get(code);
+            PlayerSession session = uuid == null ? null : sessions.get(uuid);
+
+            boolean codeValid = uuid != null && session != null && session.state == AuthState.AWAITING_LINK
+                    && now <= session.linkCodeExpireAt;
+
+            if (!codeValid) {
+                registerFailedAttempt(throttle, now);
+                plugin.telegram().send(chatId, plugin.lang().rawGet("link.invalid-code"));
+                return;
+            }
+
+            if (plugin.database().findByTelegramId(telegramId).isPresent()) {
+                plugin.telegram().send(chatId, plugin.lang().rawGet("link.already-linked-telegram"));
+                return;
+            }
+            if (plugin.database().findByUuid(uuid).isPresent()) {
+                plugin.telegram().send(chatId, plugin.lang().rawGet("link.already-linked-player"));
+                return;
+            }
+
+            boolean ok = plugin.database().link(uuid, telegramId, session.name, tgUsername);
+            pendingCodes.remove(code);
+
+            if (!ok) {
+                plugin.telegram().send(chatId, plugin.lang().rawGet("link.invalid-code"));
+                return;
+            }
+
+            // Successful, legitimate link - clear this Telegram user's failed-attempt history.
+            linkAttemptThrottles.remove(telegramId);
+
+            plugin.telegram().send(chatId, plugin.lang().rawGet("link.success-telegram", "%player%", session.name));
+
+            // Breaks FastLogin's chicken-and-egg problem for a brand-new registration: without this,
+            // a genuinely licensed player's very first link would never trigger FastLogin's own
+            // (opt-in per name) Mojang verification, so they'd never get flagged premium in the
+            // first place. See FastLoginHook#optIntoFastLoginPremiumCheck for the full explanation.
+            plugin.fastLoginHook().optIntoFastLoginPremiumCheck(session.name);
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                Player p = Bukkit.getPlayer(uuid);
+                if (p == null || !p.isOnline()) return;
+                authenticate(p, session, "link.success-ingame");
+            });
         }
-        if (plugin.database().findByUuid(uuid).isPresent()) {
-            plugin.telegram().send(chatId, plugin.lang().rawGet("link.already-linked-player"));
-            return;
-        }
-
-        boolean ok = plugin.database().link(uuid, telegramId, session.name, tgUsername);
-        pendingCodes.remove(code);
-
-        if (!ok) {
-            plugin.telegram().send(chatId, plugin.lang().rawGet("link.invalid-code"));
-            return;
-        }
-
-        plugin.telegram().send(chatId, plugin.lang().rawGet("link.success-telegram", "%player%", session.name));
-
-        // Breaks FastLogin's chicken-and-egg problem for a brand-new registration: without this,
-        // a genuinely licensed player's very first link would never trigger FastLogin's own
-        // (opt-in per name) Mojang verification, so they'd never get flagged premium in the
-        // first place. See FastLoginHook#optIntoFastLoginPremiumCheck for the full explanation.
-        plugin.fastLoginHook().optIntoFastLoginPremiumCheck(session.name);
-
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            Player p = Bukkit.getPlayer(uuid);
-            if (p == null || !p.isOnline()) return;
-            authenticate(p, session, "link.success-ingame");
-        });
     }
 
+    private void registerFailedAttempt(LinkAttemptThrottle throttle, long now) {
+        int maxAttempts = plugin.cfg().linkMaxAttempts();
+        int windowSeconds = plugin.cfg().linkAttemptWindowSeconds();
+        int lockoutSeconds = plugin.cfg().linkLockoutSeconds();
+
+        if (now - throttle.windowStart > windowSeconds * 1000L) {
+            // Previous window expired - start a fresh one.
+            throttle.windowStart = now;
+            throttle.failedAttempts = 0;
+        }
+
+        throttle.failedAttempts++;
+        if (throttle.failedAttempts >= maxAttempts) {
+            throttle.blockedUntil = now + lockoutSeconds * 1000L;
+            throttle.failedAttempts = 0;
+            throttle.windowStart = now;
+        }
+
+        registerGlobalFailedAttempt(now);
+    }
+
+    /** Distributed-brute-force defense: if wrong /link guesses are piling up across MANY
+     *  different Telegram accounts at once (not just one), lock out all /link attempts briefly
+     *  regardless of who's making them, since that pattern only really happens during an attack,
+     *  not from ordinary player typos. */
+    private synchronized void registerGlobalFailedAttempt(long now) {
+        int maxAttempts = plugin.cfg().globalLinkMaxAttempts();
+        int windowSeconds = plugin.cfg().globalLinkAttemptWindowSeconds();
+        int lockoutSeconds = plugin.cfg().globalLinkLockoutSeconds();
+
+        if (now - globalFailedWindowStart > windowSeconds * 1000L) {
+            globalFailedWindowStart = now;
+            globalFailedLinkAttempts.set(0);
+        }
+
+        int attempts = globalFailedLinkAttempts.incrementAndGet();
+        if (attempts >= maxAttempts) {
+            globalLockoutUntil = now + lockoutSeconds * 1000L;
+            globalFailedLinkAttempts.set(0);
+            globalFailedWindowStart = now;
+            plugin.getLogger().warning("Too many failed /link attempts across " + attempts
+                    + " requests in a short window - temporarily locking out ALL /link attempts "
+                    + "for " + lockoutSeconds + "s. This usually means someone is brute-forcing "
+                    + "link codes using multiple Telegram accounts.");
+        }
+    }
     // ---------------------------------------------------------------------
     // Confirm flow (already-linked accounts, non-premium or premium w/o skip)
     // ---------------------------------------------------------------------
@@ -304,6 +391,16 @@ public class AuthManager {
     }
 
     private void applyFreezeEffects(Player player) {
+        // Reset fall distance immediately on join: if this player disconnected mid-fall last
+        // time (e.g. kicked by the auth timeout while falling, or just closed the client),
+        // Minecraft can persist that in-progress fall distance across the reconnect. Since our
+        // freeze pins the player's Y position (see onMove in PlayerProtectListener), they'd
+        // never "land" to reset it naturally while frozen, so it could sit there, or even stack
+        // further, across repeated disconnect/reconnect cycles - both of which are directly
+        // exploitable via any fall-distance-scaled damage source (e.g. the Mace's Density
+        // enchantment) once the fake distance eventually gets discharged. Reset unconditionally.
+        player.setFallDistance(0f);
+
         if (plugin.cfg().applyBlindness()) {
             player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, Integer.MAX_VALUE, 1, false, false, false));
         }
@@ -315,6 +412,9 @@ public class AuthManager {
     private void removeFreezeEffects(Player player) {
         player.removePotionEffect(PotionEffectType.BLINDNESS);
         player.removePotionEffect(PotionEffectType.SLOWNESS);
+        // Reset again right before unfreezing, in case anything nudged it during the freeze
+        // window - cheap extra safety net for the same fall-distance exploit described above.
+        player.setFallDistance(0f);
     }
 
     private String generateCode() {

@@ -1,5 +1,5 @@
 name: TgAuth
-version: '1.0.0'
+version: '${project.version}'
 main: net.millyland.auth.TgAuthPlugin
 api-version: '1.21'
 author: TgAuth
@@ -9,7 +9,7 @@ softdepend: [FastLogin]
 commands:
   tgauth:
     description: Admin command for TgAuth
-    usage: /tgauth <reload|unlink|forcelink|info|userinfo|fastlogin> [player] [telegramId]
+    usage: /tgauth <reload|unlink|forcelink|userinfo|fastlogin> [player] [telegramId]
     permission: tgauth.admin
   tgcode:
     description: Resend your Telegram linking code

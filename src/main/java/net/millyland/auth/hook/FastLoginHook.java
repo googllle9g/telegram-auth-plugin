@@ -66,6 +66,7 @@ public class FastLoginHook {
             return;
         }
         fastLoginPresent = true;
+        checkAutoRegisterSetting(fastLogin);
 
         // Different FastLogin builds have moved this interface between a couple of packages
         // over time; try each known candidate rather than hard-coding just one.
@@ -154,12 +155,47 @@ public class FastLoginHook {
         return null;
     }
 
+    /**
+     * FastLogin only checks premium status automatically for names already registered with the
+     * hooked auth plugin - a brand-new player's very first connection is never checked at all
+     * unless FastLogin's own {@code autoRegister} setting is enabled. This reads FastLogin's own
+     * config.yml (not TgAuth's) to warn admins who left it off, since that's the single most
+     * common reason "auto premium" only seems to work for already-known players. Safe to enable
+     * with TgAuth specifically: unlike password-based auth plugins (LoginSecurity, AuthMe), our
+     * forceRegister implementation ignores the generated password entirely - TgAuth has no
+     * concept of passwords at all, everything goes through Telegram.
+     */
+    private void checkAutoRegisterSetting(Plugin fastLogin) {
+        if (!(fastLogin instanceof org.bukkit.plugin.java.JavaPlugin javaPlugin)) return;
+        try {
+            boolean autoRegister = javaPlugin.getConfig().getBoolean("autoRegister", false);
+            if (!autoRegister) {
+                plugin.getLogger().warning("FastLogin's own config.yml has autoRegister: false. "
+                        + "This means FastLogin will never check a brand-new (never-before-registered) "
+                        + "player's premium status automatically - only players TgAuth already knows about. "
+                        + "If you turned this off because of password issues with LoginSecurity/AuthMe, that "
+                        + "doesn't apply here: TgAuth ignores the generated password completely, it has no "
+                        + "concept of passwords at all. Consider setting autoRegister: true in FastLogin's "
+                        + "config.yml for reliable premium detection on new players.");
+            }
+        } catch (Exception e) {
+            plugin.getLogger().fine("Could not read FastLogin's autoRegister setting: " + e);
+        }
+    }
+
     public boolean isFastLoginPresent() {
         return fastLoginPresent;
     }
 
     public boolean isHookRegistered() {
         return hookRegistered;
+    }
+
+    /** Read live (not cached) so `/tgauth fastlogin` always reflects the current config.yml. */
+    public boolean isFastLoginAutoRegisterEnabled() {
+        Plugin fastLogin = Bukkit.getPluginManager().getPlugin("FastLogin");
+        if (!(fastLogin instanceof org.bukkit.plugin.java.JavaPlugin javaPlugin)) return false;
+        return javaPlugin.getConfig().getBoolean("autoRegister", false);
     }
 
     public int markedPremiumCount() {
@@ -235,7 +271,18 @@ public class FastLoginHook {
         });
     }
 
+    /** Minecraft usernames are always 1-16 chars, letters/digits/underscore only - Bukkit itself
+     *  enforces this at the protocol level before a Player object ever exists, but this is
+     *  checked again here as defense in depth before building a raw command string out of a
+     *  name, in case that guarantee ever changes or this method gets reused from elsewhere. */
+    private static final java.util.regex.Pattern VALID_USERNAME = java.util.regex.Pattern.compile("^[a-zA-Z0-9_]{1,16}$");
+
     private void runPremiumCommand(String name, String reason) {
+        if (!VALID_USERNAME.matcher(name).matches()) {
+            plugin.getLogger().warning("Refusing to run '/premium' for '" + name + "': doesn't look like a valid "
+                    + "Minecraft username, not risking it in a console command.");
+            return;
+        }
         Bukkit.getScheduler().runTask(plugin, () -> {
             try {
                 boolean ok = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "premium " + name);

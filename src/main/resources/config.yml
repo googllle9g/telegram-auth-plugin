@@ -76,3 +76,20 @@ fastlogin:
 
 storage:
   file: "database.db"
+
+security:
+  # Protects the /link <code> flow against brute-forcing the code (it's a 6-digit number,
+  # ~900,000 possibilities - without a limit on wrong guesses, a script could try enough of
+  # them within the code's validity window to eventually hijack someone's account). This limits
+  # how many WRONG /link attempts a single Telegram account can make before being temporarily
+  # blocked from trying again.
+  link-max-attempts: 5
+  link-attempt-window-seconds: 60
+  link-lockout-seconds: 300
+  # Extra layer on top of the per-account limit above: if wrong /link guesses pile up across
+  # MANY different Telegram accounts within a short window, that's a strong sign of a
+  # distributed brute-force attempt (spreading guesses across accounts to dodge the per-account
+  # limit), so ALL /link attempts get temporarily locked out, regardless of who's making them.
+  global-link-max-attempts: 20
+  global-link-attempt-window-seconds: 60
+  global-link-lockout-seconds: 120

@@ -102,4 +102,28 @@ public class Config {
     public String storageFile() {
         return cfg.getString("storage.file", "database.db");
     }
+
+    public int linkMaxAttempts() {
+        return cfg.getInt("security.link-max-attempts", 5);
+    }
+
+    public int linkAttemptWindowSeconds() {
+        return cfg.getInt("security.link-attempt-window-seconds", 60);
+    }
+
+    public int linkLockoutSeconds() {
+        return cfg.getInt("security.link-lockout-seconds", 300);
+    }
+
+    public int globalLinkMaxAttempts() {
+        return cfg.getInt("security.global-link-max-attempts", 20);
+    }
+
+    public int globalLinkAttemptWindowSeconds() {
+        return cfg.getInt("security.global-link-attempt-window-seconds", 60);
+    }
+
+    public int globalLinkLockoutSeconds() {
+        return cfg.getInt("security.global-link-lockout-seconds", 120);
+    }
 }

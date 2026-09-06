@@ -70,7 +70,9 @@ public class TgAuthPlugin extends JavaPlugin {
                     + "will not work until the server is restarted with a world present.");
         }
 
-        getCommand("tgauth").setExecutor(new TgAuthCommand(this));
+        TgAuthCommand tgAuthCommand = new TgAuthCommand(this);
+        getCommand("tgauth").setExecutor(tgAuthCommand);
+        getCommand("tgauth").setTabCompleter(tgAuthCommand);
         getCommand("tgcode").setExecutor(new TgCodeCommand(this));
 
         if (config.migrateLinkByUsername()) {

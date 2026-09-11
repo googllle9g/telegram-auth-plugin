@@ -7,6 +7,7 @@ join:
   need-confirm: "&eA login confirmation request has been sent to Telegram. Please confirm it."
   premium-auto-login: "&aYou were logged in automatically as a trusted premium account."
   already-authenticated: "&aYou are already authenticated."
+  trusted-ip-skip: "&aLogin confirmed automatically (trusted IP)."
 
 link:
   success-ingame: "&aYour account has been linked to Telegram! Welcome."

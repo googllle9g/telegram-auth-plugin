@@ -1,7 +1,6 @@
 package net.millyland.auth.hook;
 
 import net.millyland.auth.TgAuthPlugin;
-import net.millyland.auth.util.MojangApi;
 import net.millyland.auth.util.UuidUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -10,45 +9,12 @@ import org.bukkit.plugin.Plugin;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Registers TgAuth as FastLogin's "auth plugin" hook.
- * <p>
- * FastLogin (games647) only performs its premium (Mojang) verification when it is either
- * running behind BungeeCord/Velocity, OR it has a recognised local "auth plugin" hooked in
- * (see {@code com.github.games647.fastlogin.core.hooks.AuthPlugin}). Without either, it logs
- * "No auth plugin were found..." and disables its own login handling entirely.
- * <p>
- * FastLogin ships with hooks for a fixed list of well-known plugins (AuthMe, nLogin, etc.),
- * but its core module also exposes a small public API for third parties:
- * {@code FastLoginCore#setAuthPluginHook(AuthPlugin<P> hook)}. Because compiling directly
- * against FastLogin's classes would tie this plugin to one exact FastLogin build (and this
- * project intentionally has zero hard dependency on it), the hook below is created as a JDK
- * dynamic {@link Proxy} implementing that interface purely via reflection:
- * <ul>
- *   <li>{@code isRegistered(String playerName)} - true if that name is already linked to a
- *       Telegram account in our own database.</li>
- *   <li>{@code forceLogin(Player player)} - called by FastLogin once it has verified (via
- *       Mojang) that the connecting player owns this premium account AND we reported them as
- *       already "registered". We simply mark the session as verified-premium.</li>
- *   <li>{@code forceRegister(Player player, String password)} - called for a verified premium
- *       player we reported as NOT registered yet. We don't use passwords, so this is a no-op
- *       beyond marking the session verified-premium; TgAuth's own /link flow still runs.</li>
- * </ul>
- * If reflection fails for any reason (FastLogin absent, or its API changed in a way our
- * method-name probing can't handle), TgAuth falls back to a UUID-version heuristic
- * (see {@link UuidUtil}) so the plugin keeps working either way.
- */
 public class FastLoginHook {
 
     private final TgAuthPlugin plugin;
     private boolean hookRegistered;
     private boolean fastLoginPresent;
-    private final Set<UUID> markedPremiumInFastLogin = ConcurrentHashMap.newKeySet();
-    private final Set<String> optedIntoPremiumCheck = ConcurrentHashMap.newKeySet();
 
     public FastLoginHook(TgAuthPlugin plugin) {
         this.plugin = plugin;
@@ -68,8 +34,6 @@ public class FastLoginHook {
         fastLoginPresent = true;
         checkAutoRegisterSetting(fastLogin);
 
-        // Different FastLogin builds have moved this interface between a couple of packages
-        // over time; try each known candidate rather than hard-coding just one.
         String[] ifaceCandidates = {
                 "com.github.games647.fastlogin.core.hooks.AuthPlugin",
                 "com.github.games647.fastlogin.core.hooking.AuthPlugin",
@@ -82,7 +46,7 @@ public class FastLoginHook {
                 authPluginIface = Class.forName(fqcn);
                 break;
             } catch (ClassNotFoundException ignored) {
-                // try next candidate
+
             }
         }
 
@@ -101,15 +65,12 @@ public class FastLoginHook {
                     new AuthPluginInvocationHandler()
             );
 
-            // Step 1: get the "core" object that exposes setAuthPluginHook(...). On most builds
-            // this is FastLoginBukkit#getCore(); fall back to using the plugin instance itself
-            // in case a build exposes the setter directly on the plugin.
             Object core = invokeNoArgIfPresent(fastLogin, "getCore");
             if (core == null) core = fastLogin;
 
             Method setHook = findSingleArgMethod(core.getClass(), "setAuthPluginHook", authPluginIface);
             if (setHook == null && core != fastLogin) {
-                // also try directly on the plugin instance as a last resort
+
                 setHook = findSingleArgMethod(fastLogin.getClass(), "setAuthPluginHook", authPluginIface);
                 if (setHook != null) core = fastLogin;
             }
@@ -155,20 +116,14 @@ public class FastLoginHook {
         return null;
     }
 
-    /**
-     * FastLogin only checks premium status automatically for names already registered with the
-     * hooked auth plugin - a brand-new player's very first connection is never checked at all
-     * unless FastLogin's own {@code autoRegister} setting is enabled. This reads FastLogin's own
-     * config.yml (not TgAuth's) to warn admins who left it off, since that's the single most
-     * common reason "auto premium" only seems to work for already-known players. Safe to enable
-     * with TgAuth specifically: unlike password-based auth plugins (LoginSecurity, AuthMe), our
-     * forceRegister implementation ignores the generated password entirely - TgAuth has no
-     * concept of passwords at all, everything goes through Telegram.
-     */
     private void checkAutoRegisterSetting(Plugin fastLogin) {
         if (!(fastLogin instanceof org.bukkit.plugin.java.JavaPlugin javaPlugin)) return;
         try {
-            boolean autoRegister = javaPlugin.getConfig().getBoolean("autoRegister", false);
+            var cfg = javaPlugin.getConfig();
+            boolean autoRegister = cfg.getBoolean("autoRegister", false);
+            boolean secondAttemptCracked = cfg.getBoolean("secondAttemptCracked", false);
+            boolean premiumUuid = cfg.getBoolean("premiumUuid", false);
+
             if (!autoRegister) {
                 plugin.getLogger().warning("FastLogin's own config.yml has autoRegister: false. "
                         + "This means FastLogin will never check a brand-new (never-before-registered) "
@@ -177,9 +132,26 @@ public class FastLoginHook {
                         + "doesn't apply here: TgAuth ignores the generated password completely, it has no "
                         + "concept of passwords at all. Consider setting autoRegister: true in FastLogin's "
                         + "config.yml for reliable premium detection on new players.");
+            } else if (!secondAttemptCracked) {
+                plugin.getLogger().warning("FastLogin's own config.yml has autoRegister: true but "
+                        + "secondAttemptCracked: false. With this combination, a genuinely cracked player "
+                        + "using a name FastLogin decides to premium-check gets disconnected ('invalid "
+                        + "session') and will keep getting disconnected on every reconnect attempt, since "
+                        + "FastLogin doesn't remember the name already failed once. Set "
+                        + "secondAttemptCracked: true in FastLogin's config.yml so cracked players can "
+                        + "actually join a hybrid server.");
+            }
+
+            if (!premiumUuid) {
+                plugin.getLogger().warning("FastLogin's own config.yml has premiumUuid: false. Without it, "
+                        + "FastLogin does NOT switch a verified-premium player's effective UUID to their real "
+                        + "Mojang UUID - they keep the same offline/cracked UUID regardless of verification. "
+                        + "TgAuth's auth.migrate-link-by-username only has any effect when a UUID actually "
+                        + "changes between a cracked and a premium login for the same name, so set "
+                        + "premiumUuid: true in FastLogin's config.yml if you want that feature to do anything.");
             }
         } catch (Exception e) {
-            plugin.getLogger().fine("Could not read FastLogin's autoRegister setting: " + e);
+            plugin.getLogger().fine("Could not read FastLogin's config settings: " + e);
         }
     }
 
@@ -191,111 +163,29 @@ public class FastLoginHook {
         return hookRegistered;
     }
 
-    /** Read live (not cached) so `/tgauth fastlogin` always reflects the current config.yml. */
     public boolean isFastLoginAutoRegisterEnabled() {
+        return readFastLoginBoolean("autoRegister");
+    }
+
+    public boolean isFastLoginSecondAttemptCrackedEnabled() {
+        return readFastLoginBoolean("secondAttemptCracked");
+    }
+
+    public boolean isFastLoginPremiumUuidEnabled() {
+        return readFastLoginBoolean("premiumUuid");
+    }
+
+    private boolean readFastLoginBoolean(String key) {
         Plugin fastLogin = Bukkit.getPluginManager().getPlugin("FastLogin");
         if (!(fastLogin instanceof org.bukkit.plugin.java.JavaPlugin javaPlugin)) return false;
-        return javaPlugin.getConfig().getBoolean("autoRegister", false);
+        return javaPlugin.getConfig().getBoolean(key, false);
     }
 
-    public int markedPremiumCount() {
-        return markedPremiumInFastLogin.size();
-    }
-
-    public int optedInCount() {
-        return optedIntoPremiumCheck.size();
-    }
-
-    /**
-     * Best-effort premium check for the initial PlayerJoinEvent decision, before FastLogin's
-     * own (slightly delayed) forceLogin/forceRegister callback has necessarily fired yet.
-     * The authoritative signal is {@link net.millyland.auth.auth.AuthManager#isFastLoginVerifiedPremium(java.util.UUID)},
-     * which this falls back to first.
-     */
     public boolean isPremium(Player player) {
         if (plugin.authManager().isFastLoginVerifiedPremium(player.getUniqueId())) {
             return true;
         }
         return UuidUtil.looksPremium(player.getUniqueId());
-    }
-
-    /**
-     * Runs FastLogin's own "/premium &lt;name&gt;" console command for this player so FastLogin's
-     * own premium list also records them, not just TgAuth's internal state. Idempotent (only
-     * dispatched once per player per server run) and a complete no-op if FastLogin isn't
-     * installed/enabled or the feature is turned off in config.yml.
-     */
-    public void markPremiumInFastLogin(Player player) {
-        if (!plugin.cfg().addToFastLoginPremiumList()) return;
-
-        Plugin fastLogin = Bukkit.getPluginManager().getPlugin("FastLogin");
-        if (fastLogin == null || !fastLogin.isEnabled()) return;
-
-        if (!markedPremiumInFastLogin.add(player.getUniqueId())) return; // already done this run
-
-        runPremiumCommand(player.getName(), "confirmed-premium");
-    }
-
-    /**
-     * Breaks a chicken-and-egg problem: by default FastLogin never automatically attempts its
-     * Mojang online-mode verification for a name it hasn't been told about before ("opt-in" -
-     * see FastLogin's own issue tracker) - which means a genuinely licensed player's very first
-     * connection would never get flagged as premium by {@code forceLogin}/{@code forceRegister}
-     * at all, since nothing ever asked FastLogin to check them in the first place, and
-     * {@link #markPremiumInFastLogin} only ever fires *after* that check already succeeded once.
-     * <p>
-     * So instead of waiting for confirmation, this is called the moment a brand-new account
-     * finishes its very first {@code /link} - after confirming, via the free/public
-     * {@link MojangApi}, that the name is actually owned by some real Mojang account (so we
-     * don't pointlessly opt in names we're confident are cracked). This only tells FastLogin
-     * "please attempt the online-mode handshake for this name from now on" - it does not itself
-     * grant premium status; FastLogin still does its own cryptographic verification on the
-     * player's *next* connection before deciding anything. Some FastLogin versions require a
-     * reconnect for this to take effect, which is expected/normal for how "/premium" works.
-     */
-    public void optIntoFastLoginPremiumCheck(String playerName) {
-        if (!plugin.cfg().addToFastLoginPremiumList()) return;
-
-        Plugin fastLogin = Bukkit.getPluginManager().getPlugin("FastLogin");
-        if (fastLogin == null || !fastLogin.isEnabled()) return;
-
-        String key = playerName.toLowerCase(java.util.Locale.ROOT);
-        if (!optedIntoPremiumCheck.add(key)) return; // already opted in this run
-
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            if (!MojangApi.isPremiumUsername(playerName)) {
-                // Not a real Mojang account name at all - definitely cracked, nothing to opt into.
-                return;
-            }
-            runPremiumCommand(playerName, "opted-in-for-verification");
-        });
-    }
-
-    /** Minecraft usernames are always 1-16 chars, letters/digits/underscore only - Bukkit itself
-     *  enforces this at the protocol level before a Player object ever exists, but this is
-     *  checked again here as defense in depth before building a raw command string out of a
-     *  name, in case that guarantee ever changes or this method gets reused from elsewhere. */
-    private static final java.util.regex.Pattern VALID_USERNAME = java.util.regex.Pattern.compile("^[a-zA-Z0-9_]{1,16}$");
-
-    private void runPremiumCommand(String name, String reason) {
-        if (!VALID_USERNAME.matcher(name).matches()) {
-            plugin.getLogger().warning("Refusing to run '/premium' for '" + name + "': doesn't look like a valid "
-                    + "Minecraft username, not risking it in a console command.");
-            return;
-        }
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            try {
-                boolean ok = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "premium " + name);
-                if (ok) {
-                    plugin.getLogger().info("Ran FastLogin's '/premium " + name + "' command (" + reason + ").");
-                } else {
-                    plugin.getLogger().warning("FastLogin rejected the '/premium " + name
-                            + "' command (unexpected - check FastLogin's own logs).");
-                }
-            } catch (Exception e) {
-                plugin.getLogger().warning("Could not run FastLogin's '/premium " + name + "' command: " + e);
-            }
-        });
     }
 
     private class AuthPluginInvocationHandler implements InvocationHandler {

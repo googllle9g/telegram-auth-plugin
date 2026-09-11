@@ -19,11 +19,6 @@ public class Config {
         load();
     }
 
-    /**
-     * Loads config.yml, extracting the bundled default on first run, and merging in any new
-     * keys a plugin update introduced without touching values already set by the server owner.
-     * See {@link YamlMerger} for details/caveats.
-     */
     public void load() {
         if (!plugin.getDataFolder().exists()) {
             plugin.getDataFolder().mkdirs();
@@ -51,6 +46,18 @@ public class Config {
         return cfg.getString("telegram.bot-username", "");
     }
 
+    public java.util.List<Long> adminTelegramIds() {
+        java.util.List<Long> list = new java.util.ArrayList<>();
+        for (Object o : cfg.getList("telegram.admin-ids", java.util.List.of())) {
+            try {
+                list.add(Long.parseLong(String.valueOf(o)));
+            } catch (NumberFormatException ignored) {
+
+            }
+        }
+        return list;
+    }
+
     public int codeExpireSeconds() {
         return cfg.getInt("auth.code-expire-seconds", 300);
     }
@@ -76,11 +83,15 @@ public class Config {
     }
 
     public boolean migrateLinkByUsername() {
-        return cfg.getBoolean("auth.migrate-link-by-username", false);
+        return cfg.getBoolean("auth.migrate-link-by-username", true);
     }
 
     public boolean migrationOverwriteExistingData() {
-        return cfg.getBoolean("auth.migration-overwrite-existing-data", false);
+        return cfg.getBoolean("auth.migration-overwrite-existing-data", true);
+    }
+
+    public int crackedIpCooldownSeconds() {
+        return cfg.getInt("auth.cracked-ip-cooldown-seconds", 0);
     }
 
     public boolean fastLoginEnabled() {
@@ -93,10 +104,6 @@ public class Config {
 
     public int premiumCheckWaitSeconds() {
         return cfg.getInt("fastlogin.premium-check-wait-seconds", 4);
-    }
-
-    public boolean addToFastLoginPremiumList() {
-        return cfg.getBoolean("fastlogin.add-to-fastlogin-premium-list", true);
     }
 
     public String storageFile() {

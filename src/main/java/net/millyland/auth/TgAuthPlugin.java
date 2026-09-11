@@ -5,6 +5,7 @@ import net.millyland.auth.command.TgAuthCommand;
 import net.millyland.auth.command.TgCodeCommand;
 import net.millyland.auth.config.Config;
 import net.millyland.auth.hook.FastLoginHook;
+import net.millyland.auth.hook.LuckPermsHook;
 import net.millyland.auth.lang.Lang;
 import net.millyland.auth.listener.PlayerJoinQuitListener;
 import net.millyland.auth.listener.PlayerProtectListener;
@@ -23,6 +24,7 @@ public class TgAuthPlugin extends JavaPlugin {
     private Database database;
     private AuthManager authManager;
     private FastLoginHook fastLoginHook;
+    private LuckPermsHook luckPermsHook;
     private TelegramService telegramService;
     private File primaryWorldContainer;
 
@@ -42,6 +44,7 @@ public class TgAuthPlugin extends JavaPlugin {
 
         this.authManager = new AuthManager(this);
         this.fastLoginHook = new FastLoginHook(this);
+        this.luckPermsHook = new LuckPermsHook(this);
 
         if (config.botToken() == null || config.botToken().isBlank()
                 || config.botToken().equals("PUT_YOUR_BOT_TOKEN_HERE")) {
@@ -60,10 +63,6 @@ public class TgAuthPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new PlayerProtectListener(this), this);
         getServer().getPluginManager().registerEvents(new UuidMigrationListener(this), this);
 
-        // Cached once here (main thread, worlds are guaranteed loaded by the time plugins
-        // enable) so PlayerDataMigrator never has to call Bukkit.getWorlds() from the async
-        // AsyncPlayerPreLoginEvent thread it actually runs on - Bukkit API calls generally
-        // aren't guaranteed safe off the main thread.
         this.primaryWorldContainer = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0).getWorldFolder();
         if (primaryWorldContainer == null) {
             getLogger().warning("No world was loaded at plugin startup - cracked/premium player data migration "
@@ -76,17 +75,17 @@ public class TgAuthPlugin extends JavaPlugin {
         getCommand("tgcode").setExecutor(new TgCodeCommand(this));
 
         if (config.migrateLinkByUsername()) {
-            getLogger().warning("auth.migrate-link-by-username is ENABLED - a player could squat someone else's "
-                    + "username while cracked and hijack their account when they later connect with a licensed "
-                    + "account. Only keep this on if you trust your playerbase not to do that. See config.yml "
-                    + "for details.");
+            getLogger().info("auth.migrate-link-by-username is enabled - cracked/premium UUID switches for the "
+                    + "same username will re-link automatically. This requires FastLogin's own premiumUuid: true "
+                    + "AND secondAttemptCracked: true settings to be enabled to work correctly and safely - run "
+                    + "/tgauth fastlogin to check them. See config.yml for details.");
 
             if (config.migrationOverwriteExistingData()) {
-                getLogger().warning("auth.migration-overwrite-existing-data is ALSO enabled - migrations will "
-                        + "overwrite playerdata/advancements/stats files that already exist for the destination "
-                        + "UUID, even if they contain real data. Only keep this on if you're sure that UUID never "
-                        + "holds data you care about keeping (e.g. it's realistically always the destination "
-                        + "player's very first time actually being recognised as that account on this server).");
+                getLogger().info("auth.migration-overwrite-existing-data is enabled (default) - migrations will "
+                        + "overwrite any playerdata/advancements/stats already present for the destination UUID. "
+                        + "Safe on a fresh server or one where TgAuth/FastLogin were set up from the start. If "
+                        + "you added this setup to an ALREADY-RUNNING server with real players who had progress "
+                        + "under their own premium UUID before this existed, turn this off in config.yml.");
             }
         }
 
@@ -124,6 +123,10 @@ public class TgAuthPlugin extends JavaPlugin {
 
     public FastLoginHook fastLoginHook() {
         return fastLoginHook;
+    }
+
+    public LuckPermsHook luckPermsHook() {
+        return luckPermsHook;
     }
 
     public TelegramService telegram() {

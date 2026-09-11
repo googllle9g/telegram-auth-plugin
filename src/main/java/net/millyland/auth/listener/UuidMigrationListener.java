@@ -12,16 +12,6 @@ import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * Handles the cracked ⇄ premium account switch (same username, different UUID) as early as
- * possible in the login sequence - before Minecraft loads player data for the connecting UUID -
- * so the player's inventory, advancements, statistics and OP status carry over instead of
- * appearing to reset. See {@link PlayerDataMigrator} for what actually gets migrated.
- * <p>
- * AsyncPlayerPreLoginEvent already runs off the main thread and the server waits for it to
- * finish before continuing the login, so blocking DB/file I/O here is the intended pattern
- * (same as any other auth plugin).
- */
 public class UuidMigrationListener implements Listener {
 
     private final TgAuthPlugin plugin;
@@ -39,26 +29,16 @@ public class UuidMigrationListener implements Listener {
         String name = event.getName();
 
         if (plugin.database().findByUuid(newUuid).isPresent()) {
-            return; // already linked under this exact UUID, nothing to migrate
+            return;
         }
 
         Optional<LinkedAccount> byName = plugin.database().findByUsername(name);
         if (byName.isEmpty() || byName.get().uuid().equals(newUuid)) {
-            return; // no existing link under a different UUID for this name
+            return;
         }
 
         UUID oldUuid = byName.get().uuid();
 
-        // Safety check: the offline ("cracked") UUID for a given name is a deterministic
-        // function of that name - it's exactly what vanilla/Bukkit computes when running in
-        // offline mode, never anything else. So if either side of this migration is that exact
-        // computed value, we can be certain it really is the vanilla cracked account for this
-        // name, not just some other UUID that happens to share a stored username (which, unlike
-        // the offline UUID, could in theory be stale - e.g. two different real people using the
-        // same name at different times). A licensed UUID, by contrast, is assigned by Mojang
-        // effectively at random and simply cannot be derived from the name - the only way to
-        // learn it is an actual login (which is what's happening right now) or a Mojang API
-        // lookup, so there's no equivalent check to run on that side.
         UUID expectedOfflineUuid = UuidUtil.offlineUuidFor(name);
         boolean oldIsGenuineOffline = oldUuid.equals(expectedOfflineUuid);
         boolean newIsGenuineOffline = newUuid.equals(expectedOfflineUuid);

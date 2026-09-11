@@ -67,14 +67,6 @@ public class PlayerProtectListener implements Listener {
         }
     }
 
-    /**
-     * Melee attacks (left-click) never fire PlayerInteractEvent - they go straight through
-     * EntityDamageByEntityEvent with the attacker as getDamager(). The earlier version of this
-     * listener only checked the VICTIM here, meaning a frozen/unauthenticated player could still
-     * freely punch other players or mobs. Now checks both the victim and the attacker (including
-     * through a projectile's shooter, e.g. an arrow/trident, as defense in depth even though
-     * PlayerInteractEvent should already prevent firing one in the first place).
-     */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onDamage(EntityDamageEvent e) {
         if (e.getEntity() instanceof Player victim && blocked(victim)) {
@@ -165,11 +157,6 @@ public class PlayerProtectListener implements Listener {
         if (blocked(e.getPlayer())) e.setCancelled(true);
     }
 
-    /** Defense in depth: entering a vehicle (boat/minecart) moves the player via
-     *  VehicleMoveEvent, not PlayerMoveEvent, so our normal freeze wouldn't stop it once in.
-     *  This should already be unreachable since entering a vehicle requires
-     *  PlayerInteractEntityEvent, which we already cancel - but block it explicitly too in
-     *  case some other plugin/mechanism puts an unauthenticated player into a vehicle. */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onVehicleEnter(VehicleEnterEvent e) {
         if (e.getEntered() instanceof Player player && blocked(player)) {
@@ -187,4 +174,3 @@ public class PlayerProtectListener implements Listener {
         if (blocked(e.getPlayer())) e.setCancelled(true);
     }
 }
-

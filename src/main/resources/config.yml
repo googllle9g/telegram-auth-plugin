@@ -1,14 +1,14 @@
-# ================================
-#         TgAuth config
-# ================================
-
-# Language file to use from the /lang folder (without .yml). Add your own lang/xx.yml to translate.
 language: "ru"
 
 telegram:
   # Get a token from @BotFather
   bot-token: "PUT_YOUR_BOT_TOKEN_HERE"
   bot-username: "PUT_YOUR_BOT_USERNAME_HERE"
+  # Telegram user IDs allowed to use the /admin panel in the bot (search/view/unlink/ban/etc).
+  # This is only needed for admins who AREN'T linking their own Minecraft account: anyone whose
+  # linked account has the tgauth.admin permission (or OP, if offline) gets panel access
+  # automatically. Get your own numeric ID from a bot like @userinfobot. Example: [123456789]
+  admin-ids: []
 
 auth:
   # How long (seconds) a /link code stays valid.
@@ -22,56 +22,44 @@ auth:
   # Apply blindness/slowness effects to unauthenticated players so they can't see/move around.
   apply-blindness: true
   apply-slowness: true
+
   # If a player's account isn't found under their current UUID, but a linked account exists
   # under a different UUID with the exact same (case-insensitive) username, automatically
   # re-point that link (and migrate inventory/OP - see PlayerDataMigrator) to the new UUID
   # instead of asking for a fresh /link.
   #
-  # !! SECURITY WARNING - READ BEFORE ENABLING !!
-  # This can only prove "this old UUID really is a normal offline/cracked login for this exact
-  # name" - it CANNOT prove that the same real person is behind both logins. On a server that
-  # allows cracked connections, anyone can join under any free username. That means an attacker
-  # could:
-  #   1. Connect cracked as e.g. "PopularStreamer" (a name they don't actually own on Mojang).
-  #   2. Complete /link, attaching THEIR OWN Telegram to that name.
-  #   3. When the real "PopularStreamer" later connects with their real licensed account for
-  #      the first time, this feature would silently hand their account over to the attacker's
-  #      Telegram - meaning the attacker's Telegram would receive (and could simply reject)
-  #      every future login-confirmation request for the real owner's own account.
-  # Only enable this if you trust your playerbase not to squat other people's names (e.g. a
-  # small private/whitelisted server), or you've mitigated name-squatting some other way.
-  # Leave this off (default) on any public server - players will just need to /link again
-  # once when switching between cracked and licensed, which is safe.
-  migrate-link-by-username: false
+  # Requires FastLogin's own premiumUuid: true AND secondAttemptCracked: true settings to work
+  # correctly and safely - see the FastLogin integration section of README.md. With those set,
+  # FastLogin permanently marks a username as cracked the first time it fails Mojang
+  # verification, so a squatted username can't later inherit the real owner's connection - the
+  # real owner just gets the same UUID as the squatter, nothing to migrate. Run /tgauth
+  # fastlogin to check these FastLogin settings.
+  migrate-link-by-username: true
+
   # When migrating (see above), if the new UUID already has playerdata/advancements/stats
-  # files on disk (e.g. because that UUID connected to the server at some point before the
-  # migration - during testing, or FastLogin briefly touching it during its own verification),
-  # TgAuth normally refuses to overwrite them, to avoid destroying real player data. If your
-  # server's actual flow is "join cracked -> /link -> run /premium yourself -> reconnect with
-  # the licensed account", the licensed UUID realistically never has meaningful data of its own
-  # yet at that point, so it's safe to allow overwriting it with the cracked account's data.
-  # Only takes effect when migrate-link-by-username above is also true. Leave off unless you're
-  # sure the target UUID never holds data you actually care about keeping.
-  migration-overwrite-existing-data: false
+  # files on disk, overwrite them anyway. Safe on a fresh server (or one where TgAuth/FastLogin
+  # were set up from day one) since a migration only ever targets a UUID being recognised as
+  # premium for the first time. Turn off if you added this setup to an already-running server
+  # where players already had real progress under their own premium UUIDs before.
+  migration-overwrite-existing-data: true
+
+  # If set above 0, a cracked/offline account that successfully confirms a login via Telegram
+  # is trusted from that exact IP for this many seconds - reconnecting from the same IP within
+  # that window skips the Confirm/Reject request entirely. Reconnecting from a DIFFERENT IP
+  # still requires confirmation as normal, and immediately revokes the old trusted IP. If that
+  # same IP is later used to log into a DIFFERENT account, the original account's trust is
+  # revoked too. 0 disables this entirely.
+  cracked-ip-cooldown-seconds: 0
 
 fastlogin:
   # Master switch for FastLogin integration.
   enabled: true
-  # If a player is verified premium (real, Mojang/Microsoft-authenticated account, e.g. via FastLogin
-  # or by UUID version as a fallback) AND already linked to Telegram, skip the per-login
-  # Confirm/Reject step in Telegram and log them in immediately. Cracked/offline accounts always
-  # require confirmation since their identity isn't cryptographically guaranteed.
+  # If a player is verified premium and already linked to Telegram, skip the per-login
+  # Confirm/Reject step and log them in immediately. Cracked/offline accounts always require
+  # confirmation since their identity isn't cryptographically guaranteed.
   premium-skip-confirmation: true
-  # When a player is authenticated and detected as premium (verified via FastLogin's own Mojang
-  # check, or via the UUID-version fallback), automatically run FastLogin's own "/premium <name>"
-  # command for them (as the console) so FastLogin's own premium list also has them recorded,
-  # not just TgAuth's internal state. Only has any effect if FastLogin is installed. Harmless
-  # to leave on even without FastLogin - it's simply skipped.
-  add-to-fastlogin-premium-list: true
   # How long to wait for FastLogin's async Mojang premium-check to answer before falling back
-  # to sending a Telegram Confirm/Reject request. FastLogin's check is a network round-trip to
-  # Mojang, so it doesn't resolve instantly; without this grace period, premium players could
-  # briefly get a confirm request they didn't need. Only relevant if FastLogin is installed.
+  # to sending a Telegram Confirm/Reject request.
   premium-check-wait-seconds: 4
 
 storage:
@@ -79,17 +67,13 @@ storage:
 
 security:
   # Protects the /link <code> flow against brute-forcing the code (it's a 6-digit number,
-  # ~900,000 possibilities - without a limit on wrong guesses, a script could try enough of
-  # them within the code's validity window to eventually hijack someone's account). This limits
-  # how many WRONG /link attempts a single Telegram account can make before being temporarily
-  # blocked from trying again.
+  # ~900,000 possibilities). Limits how many WRONG /link attempts a single Telegram account
+  # can make before being temporarily blocked.
   link-max-attempts: 5
   link-attempt-window-seconds: 60
   link-lockout-seconds: 300
-  # Extra layer on top of the per-account limit above: if wrong /link guesses pile up across
-  # MANY different Telegram accounts within a short window, that's a strong sign of a
-  # distributed brute-force attempt (spreading guesses across accounts to dodge the per-account
-  # limit), so ALL /link attempts get temporarily locked out, regardless of who's making them.
+  # Extra layer: if wrong /link guesses pile up across MANY different Telegram accounts within
+  # a short window (a distributed brute-force attempt), lock out ALL /link attempts briefly.
   global-link-max-attempts: 20
   global-link-attempt-window-seconds: 60
   global-link-lockout-seconds: 120

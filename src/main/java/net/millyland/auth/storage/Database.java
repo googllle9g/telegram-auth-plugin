@@ -15,10 +15,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * Minimal blocking SQLite storage. Called from an async context wherever possible
- * (Telegram update thread, or Bukkit async tasks) to avoid holding up the main thread.
- */
 public class Database {
 
     private final TgAuthPlugin plugin;
@@ -47,11 +43,6 @@ public class Database {
         migrateSchema();
     }
 
-    /**
-     * Adds columns introduced by later plugin versions to an existing table, without touching
-     * any data already in it - so upgrading the plugin jar never requires deleting/recreating
-     * the database.
-     */
     private void migrateSchema() throws SQLException {
         Set<String> existing = new HashSet<>();
         try (Statement st = connection.createStatement();
@@ -73,6 +64,14 @@ public class Database {
                 st.execute("ALTER TABLE linked_accounts ADD COLUMN premium INTEGER NOT NULL DEFAULT 0");
             }
             plugin.getLogger().info("Database schema updated: added premium column.");
+        }
+
+        if (!existing.contains("last_confirmed_ip")) {
+            try (Statement st = connection.createStatement()) {
+                st.execute("ALTER TABLE linked_accounts ADD COLUMN last_confirmed_ip TEXT");
+                st.execute("ALTER TABLE linked_accounts ADD COLUMN last_confirmed_at INTEGER NOT NULL DEFAULT 0");
+            }
+            plugin.getLogger().info("Database schema updated: added last_confirmed_ip/last_confirmed_at columns.");
         }
     }
 
@@ -113,8 +112,6 @@ public class Database {
         return Optional.empty();
     }
 
-    /** Case-insensitive lookup by last-known username, used by the FastLogin hook (isRegistered)
-     *  where only the player's name is known yet, before a Player object exists. */
     public synchronized Optional<LinkedAccount> findByUsername(String username) {
         String sql = "SELECT " + COLUMNS + " FROM linked_accounts WHERE LOWER(username) = LOWER(?)";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -128,11 +125,6 @@ public class Database {
         return Optional.empty();
     }
 
-    /**
-     * @param telegramUsername the linking user's Telegram @handle at link time (may be null -
-     *                          not every Telegram user has one set), stored purely so admins
-     *                          have a way to contact the player (see /tgauth userinfo).
-     */
     public synchronized boolean link(UUID uuid, long telegramId, String username, String telegramUsername) {
         String sql = "INSERT INTO linked_accounts (uuid, telegram_id, username, linked_at, telegram_username, premium) "
                 + "VALUES (?, ?, ?, ?, ?, 0)";
@@ -161,11 +153,6 @@ public class Database {
         }
     }
 
-    /**
-     * Persists whether this player has been confirmed premium (real, Mojang-verified account),
-     * so admins can check it later (e.g. via /tgauth userinfo) even after a server restart,
-     * without needing to wait for a fresh FastLogin check.
-     */
     public synchronized boolean setPremium(UUID uuid, boolean premium) {
         String sql = "UPDATE linked_accounts SET premium = ? WHERE uuid = ?";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -178,12 +165,6 @@ public class Database {
         }
     }
 
-    /**
-     * Re-points an existing link to a new UUID, keeping the same Telegram account attached.
-     * Used when a player who previously linked while playing offline/cracked (name-based UUID)
-     * later connects with their real premium (Mojang) account, or vice-versa - same person,
-     * same name, different UUID - so they don't have to /link again from scratch.
-     */
     public synchronized boolean migrateUuid(UUID oldUuid, UUID newUuid, String newUsername) {
         String sql = "UPDATE linked_accounts SET uuid = ?, username = ? WHERE uuid = ?";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -206,5 +187,85 @@ public class Database {
                 rs.getString("telegram_username"),
                 rs.getInt("premium") != 0
         );
+    }
+
+    public synchronized java.util.List<LinkedAccount> findPage(int offset, int limit) {
+        java.util.List<LinkedAccount> results = new java.util.ArrayList<>();
+        String sql = "SELECT " + COLUMNS + " FROM linked_accounts ORDER BY linked_at DESC LIMIT ? OFFSET ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, limit);
+            ps.setInt(2, offset);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(map(rs));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("DB error (findPage): " + e.getMessage());
+        }
+        return results;
+    }
+
+    public synchronized int countAll() {
+        String sql = "SELECT COUNT(*) FROM linked_accounts";
+        try (Statement st = connection.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+            if (rs.next()) return rs.getInt(1);
+        } catch (SQLException e) {
+            plugin.getLogger().warning("DB error (countAll): " + e.getMessage());
+        }
+        return 0;
+    }
+
+    public synchronized boolean matchesRecentIp(UUID uuid, String ip, int cooldownSeconds) {
+        String sql = "SELECT last_confirmed_ip, last_confirmed_at FROM linked_accounts WHERE uuid = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return false;
+                String storedIp = rs.getString("last_confirmed_ip");
+                long storedAt = rs.getLong("last_confirmed_at");
+                if (storedIp == null || !storedIp.equals(ip)) return false;
+                return System.currentTimeMillis() - storedAt <= cooldownSeconds * 1000L;
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("DB error (matchesRecentIp): " + e.getMessage());
+            return false;
+        }
+    }
+
+    public synchronized void recordConfirmedIp(UUID uuid, String ip) {
+        String sql = "UPDATE linked_accounts SET last_confirmed_ip = ?, last_confirmed_at = ? WHERE uuid = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, ip);
+            ps.setLong(2, System.currentTimeMillis());
+            ps.setString(3, uuid.toString());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().warning("DB error (recordConfirmedIp): " + e.getMessage());
+        }
+    }
+
+    public synchronized void revokeTrustedIpIfUsedByOtherAccount(UUID excludeUuid, String ip) {
+        String sql = "UPDATE linked_accounts SET last_confirmed_ip = NULL, last_confirmed_at = 0 "
+                + "WHERE last_confirmed_ip = ? AND uuid != ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, ip);
+            ps.setString(2, excludeUuid.toString());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().warning("DB error (revokeTrustedIpIfUsedByOtherAccount): " + e.getMessage());
+        }
+    }
+
+    public synchronized void revokeTrustedIpIfMismatched(UUID uuid, String currentIp) {
+        String sql = "UPDATE linked_accounts SET last_confirmed_ip = NULL, last_confirmed_at = 0 "
+                + "WHERE uuid = ? AND last_confirmed_ip IS NOT NULL AND last_confirmed_ip != ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setString(2, currentIp);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().warning("DB error (revokeTrustedIpIfMismatched): " + e.getMessage());
+        }
     }
 }

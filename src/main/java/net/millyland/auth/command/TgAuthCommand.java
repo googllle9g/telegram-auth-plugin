@@ -49,12 +49,9 @@ public class TgAuthCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage(plugin.lang().pget("commands.usage"));
                     return true;
                 }
-                OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
-                if (!target.hasPlayedBefore() && !target.isOnline()) {
-                    sender.sendMessage(plugin.lang().pget("commands.player-not-found"));
-                    return true;
-                }
-                boolean removed = plugin.database().unlink(target.getUniqueId());
+
+                Optional<LinkedAccount> byName = plugin.database().findByUsername(args[1]);
+                boolean removed = byName.isPresent() && plugin.database().unlink(byName.get().uuid());
                 sender.sendMessage(removed
                         ? plugin.lang().pget("commands.unlink-success", "%player%", args[1])
                         : plugin.lang().pget("commands.unlink-not-linked"));
@@ -81,8 +78,8 @@ public class TgAuthCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage(plugin.lang().pget("commands.usage"));
                     return true;
                 }
-                OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
-                Optional<LinkedAccount> acc = plugin.database().findByUuid(target.getUniqueId());
+
+                Optional<LinkedAccount> acc = plugin.database().findByUsername(args[1]);
                 if (acc.isEmpty()) {
                     sender.sendMessage(plugin.lang().pget("commands.userinfo-not-linked", "%player%", args[1]));
                     return true;
@@ -109,15 +106,18 @@ public class TgAuthCommand implements CommandExecutor, TabCompleter {
                 if (hook.isFastLoginPresent()) {
                     sender.sendMessage("§7[TgAuth] FastLogin's autoRegister: " + (hook.isFastLoginAutoRegisterEnabled()
                             ? "§ayes"
-                            : "§cno - new (never-registered) players won't be premium-checked automatically. "
-                              + "See README (FastLogin integration)."));
+                            : "§cno - new (never-registered) players won't be premium-checked automatically."));
+                    sender.sendMessage("§7[TgAuth] FastLogin's secondAttemptCracked: " + (hook.isFastLoginSecondAttemptCrackedEnabled()
+                            ? "§ayes"
+                            : "§cno - cracked players may get stuck in a disconnect loop if autoRegister is on."));
+                    sender.sendMessage("§7[TgAuth] FastLogin's premiumUuid: " + (hook.isFastLoginPremiumUuidEnabled()
+                            ? "§ayes"
+                            : "§cno - UUIDs never change on premium verification, so migrate-link-by-username "
+                              + "has no effect."));
                 }
                 sender.sendMessage("§7[TgAuth] Premium-verified players this run: §f" + plugin.authManager().fastLoginVerifiedCount());
-                sender.sendMessage("§7[TgAuth] Opted into FastLogin's premium check this run: §f" + hook.optedInCount());
-                sender.sendMessage("§7[TgAuth] Added to FastLogin's /premium list this run: §f" + hook.markedPremiumCount());
                 sender.sendMessage("§7[TgAuth] config: fastlogin.enabled=" + plugin.cfg().fastLoginEnabled()
-                        + ", premium-skip-confirmation=" + plugin.cfg().premiumSkipConfirmation()
-                        + ", add-to-fastlogin-premium-list=" + plugin.cfg().addToFastLoginPremiumList());
+                        + ", premium-skip-confirmation=" + plugin.cfg().premiumSkipConfirmation());
             }
             default -> sender.sendMessage(plugin.lang().pget("commands.usage"));
         }
@@ -151,7 +151,6 @@ public class TgAuthCommand implements CommandExecutor, TabCompleter {
             }
         }
 
-        // forcelink's 3rd argument is a raw Telegram ID - nothing sensible to suggest.
         return List.of();
     }
 }

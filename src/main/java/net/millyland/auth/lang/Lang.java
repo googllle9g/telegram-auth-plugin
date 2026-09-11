@@ -12,16 +12,11 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
-/**
- * Loads a lang/&lt;code&gt;.yml file from the plugin data folder (extracting the bundled
- * default first if missing) so server owners can add or edit translations freely by
- * dropping new files into the lang/ folder and setting `language: <code>` in config.yml.
- */
 public class Lang {
 
     private final TgAuthPlugin plugin;
     private FileConfiguration messages;
-    private FileConfiguration fallback; // en.yml, used if a key is missing from the chosen language
+    private FileConfiguration fallback;
 
     public Lang(TgAuthPlugin plugin) {
         this.plugin = plugin;
@@ -50,11 +45,6 @@ public class Lang {
         this.fallback = YamlConfiguration.loadConfiguration(fallbackFile);
     }
 
-    /**
-     * Extracts the bundled lang/&lt;fileName&gt; on first run, or - if it already exists on
-     * disk (e.g. from before a plugin update added new message keys) - merges in any new keys
-     * from the bundled version without touching translations the server owner already edited.
-     */
     private void syncBundledLangFile(String fileName) {
         File out = new File(new File(plugin.getDataFolder(), "lang"), fileName);
         if (!out.exists()) {
@@ -98,12 +88,10 @@ public class Lang {
         return color(msg);
     }
 
-    /** Convenience: prefixed message. */
     public String pget(String path, Object... placeholdersKV) {
         return prefix() + get(path, placeholdersKV);
     }
 
-    /** Raw (uncolored, unprefixed) message - useful for Telegram text. */
     public String rawGet(String path, Object... placeholdersKV) {
         String msg = raw(path, path);
         for (int i = 0; i + 1 < placeholdersKV.length; i += 2) {

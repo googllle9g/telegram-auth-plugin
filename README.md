@@ -23,7 +23,7 @@ premium detection, with a safe fallback when it's not installed.
 - Paper or a Paper fork (Purpur, etc.), Minecraft 1.21.11
 - Java 21+
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
-- [FastLogin](https://www.spigotmc.org/resources/fastlogin.14153/) (optional, for hybrid
+- [FastLogin](https://ci.codemc.io/job/Games647/job/FastLogin/) (optional, for hybrid
   premium+cracked servers)
 - [LuckPerms](https://luckperms.net/) (optional, for offline admin-panel permission checks)
 

@@ -1,4 +1,4 @@
-language: "ru"
+language: "en"
 
 telegram:
   # Get a token from @BotFather
@@ -9,6 +9,9 @@ telegram:
   # linked account has the tgauth.admin permission (or OP, if offline) gets panel access
   # automatically. Get your own numeric ID from a bot like @userinfobot. Example: [123456789]
   admin-ids: []
+  # Master switch for the /admin panel in the bot. Set to false to disable it entirely,
+  # regardless of admin-ids or the tgauth.admin permission.
+  admin-panel-enabled: true
 
 auth:
   # How long (seconds) a /link code stays valid.
@@ -77,3 +80,20 @@ security:
   global-link-max-attempts: 20
   global-link-attempt-window-seconds: 60
   global-link-lockout-seconds: 120
+
+# Console commands the /admin panel's Kick/Ban/Unban/Warn buttons run instead of TgAuth's own
+# built-in Bukkit behavior (BanList, Player#kick, in-game chat message). Leave any of these
+# blank to use the built-in behavior for that action. Set one if you use a dedicated
+# punishment plugin (LiteBans, AdvancedBan, EssentialsX, etc.) so bans/warns go through its
+# own storage/history/broadcast instead of TgAuth's own. Placeholders: %player% (username),
+# %reason%, %duration% (ban only - whatever you typed in the bot: 1s/5m/2h/7d/p - make sure
+# your command's duration format matches what your punishment plugin expects).
+admin-commands:
+  kick-command: ""
+  ban-command: ""
+  unban-command: ""
+  # A "warn" here means running a command (e.g. a punishment plugin's own /warn), not sending
+  # the player a chat message - set this if you want warns to go through that plugin instead of
+  # TgAuth just messaging the player directly (the built-in default).
+  warn-command: ""
+

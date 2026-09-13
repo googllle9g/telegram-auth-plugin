@@ -6,7 +6,7 @@
 
     <groupId>net.millyland</groupId>
     <artifactId>TgAuth</artifactId>
-    <version>0.4-beta</version>
+    <version>0.4.1-beta</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -20,13 +20,6 @@
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
-        <!-- No FastLogin dependency/repository needed: the FastLogin integration is implemented
-             purely via reflection (java.lang.reflect.Proxy) at runtime in FastLoginHook.java, so
-             this plugin has zero compile-time or build-time dependency on FastLogin at all.
-             It builds and runs identically whether or not FastLogin will ever be installed
-             alongside it on a server - which is intentional, since this plugin is meant to be
-             distributed standalone (e.g. on Modrinth) without requiring anyone to install
-             FastLogin. -->
     </repositories>
 
     <dependencies>
@@ -37,7 +30,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Telegram Bot API (long polling) -->
         <dependency>
             <groupId>org.telegram</groupId>
             <artifactId>telegrambots</artifactId>
@@ -49,7 +41,6 @@
             <version>6.9.7.1</version>
         </dependency>
 
-        <!-- SQLite storage -->
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>

@@ -74,6 +74,7 @@ public class TelegramService extends TelegramLongPollingBot {
     }
 
     private boolean isAdmin(long telegramId) {
+        if (!plugin.cfg().adminPanelEnabled()) return false;
         if (plugin.cfg().adminTelegramIds().contains(telegramId)) return true;
 
         var linked = plugin.database().findByTelegramId(telegramId);
@@ -214,17 +215,32 @@ public class TelegramService extends TelegramLongPollingBot {
                     keyboard(inlineRow(button("« Back", "admin:menu"))));
         } else if (action.startsWith("unpremium:")) {
             String uuidStr = action.substring("unpremium:".length());
-            try {
-                plugin.database().setPremium(UUID.fromString(uuidStr), false);
-                editText(chatId, messageId, "✅ Premium flag cleared.",
+            withAccount(uuidStr, a -> {
+                plugin.database().setPremium(a.uuid(), false);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (plugin.fastLoginHook().isFastLoginPresent()) {
+                        try {
+                            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "unpremium " + a.username());
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("Could not run FastLogin's '/unpremium " + a.username() + "': " + e);
+                        }
+                    }
+                });
+                editText(chatId, messageId, "✅ Premium flag cleared" + (plugin.fastLoginHook().isFastLoginPresent()
+                        ? " (also ran FastLogin's /unpremium)." : "."),
                         keyboard(inlineRow(button("« Back", "admin:view:" + uuidStr))));
-            } catch (IllegalArgumentException e) {
-                editText(chatId, messageId, "❌ Invalid account.");
-            }
+            }, () -> editText(chatId, messageId, "❌ Account not found."));
         } else if (action.startsWith("unban:")) {
             String uuidStr = action.substring("unban:".length());
             withAccount(uuidStr, a -> {
-                Bukkit.getScheduler().runTask(plugin, () -> Bukkit.getBanList(BanList.Type.NAME).pardon(a.username()));
+                String custom = plugin.cfg().unbanCommand();
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (!custom.isBlank()) {
+                        dispatchConfiguredCommand(custom, a.username(), null, null);
+                    } else {
+                        Bukkit.getBanList(BanList.Type.NAME).pardon(a.username());
+                    }
+                });
                 editText(chatId, messageId, "✅ Unbanned " + a.username() + ".",
                         keyboard(inlineRow(button("« Back", "admin:view:" + uuidStr))));
             }, () -> editText(chatId, messageId, "❌ Account not found."));
@@ -252,6 +268,13 @@ public class TelegramService extends TelegramLongPollingBot {
         Bukkit.getScheduler().runTask(plugin, () -> {
             switch (action.type()) {
                 case "kick" -> {
+                    String custom = plugin.cfg().kickCommand();
+                    if (!custom.isBlank()) {
+                        boolean ok = dispatchConfiguredCommand(custom, action.playerName(), reason, null);
+                        send(chatId, ok ? "✅ Ran kick command for " + action.playerName() + ": " + reason
+                                : "❌ Kick command failed for " + action.playerName() + " (check console).");
+                        return;
+                    }
                     Player p = Bukkit.getPlayer(action.uuid());
                     if (p != null && p.isOnline()) {
                         p.kick(Component.text(reason));
@@ -261,6 +284,13 @@ public class TelegramService extends TelegramLongPollingBot {
                     }
                 }
                 case "warn" -> {
+                    String custom = plugin.cfg().warnCommand();
+                    if (!custom.isBlank()) {
+                        boolean ok = dispatchConfiguredCommand(custom, action.playerName(), reason, null);
+                        send(chatId, ok ? "✅ Ran warn command for " + action.playerName() + ": " + reason
+                                : "❌ Warn command failed for " + action.playerName() + " (check console).");
+                        return;
+                    }
                     Player p = Bukkit.getPlayer(action.uuid());
                     if (p != null && p.isOnline()) {
                         p.sendMessage(Component.text("Warning: " + reason));
@@ -273,6 +303,19 @@ public class TelegramService extends TelegramLongPollingBot {
                 }
             }
         });
+    }
+
+    private boolean dispatchConfiguredCommand(String template, String player, String reason, String duration) {
+        String cmd = template
+                .replace("%player%", player)
+                .replace("%reason%", reason == null ? "" : reason)
+                .replace("%duration%", duration == null ? "" : duration);
+        try {
+            return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
+        } catch (Exception e) {
+            plugin.getLogger().warning("Configured admin command '" + cmd + "' threw an error: " + e);
+            return false;
+        }
     }
 
     private static final long DURATION_PERMANENT = 0L;
@@ -306,6 +349,14 @@ public class TelegramService extends TelegramLongPollingBot {
         }
 
         Bukkit.getScheduler().runTask(plugin, () -> {
+            String custom = plugin.cfg().banCommand();
+            if (!custom.isBlank()) {
+                boolean ok = dispatchConfiguredCommand(custom, action.playerName(), action.reason(), durationInput);
+                send(chatId, ok ? "✅ Ran ban command for " + action.playerName() + ": " + action.reason()
+                        : "❌ Ban command failed for " + action.playerName() + " (check console).");
+                return;
+            }
+
             java.util.Date expiry = parsed == DURATION_PERMANENT ? null : new java.util.Date(System.currentTimeMillis() + parsed);
             Bukkit.getBanList(BanList.Type.NAME).addBan(action.playerName(), action.reason(), expiry, null);
             Player p = Bukkit.getPlayer(action.uuid());

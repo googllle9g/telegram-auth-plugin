@@ -35,7 +35,7 @@ public class Config {
     }
 
     public String language() {
-        return cfg.getString("language", "ru");
+        return cfg.getString("language", "en");
     }
 
     public String botToken() {
@@ -56,6 +56,10 @@ public class Config {
             }
         }
         return list;
+    }
+
+    public boolean adminPanelEnabled() {
+        return cfg.getBoolean("telegram.admin-panel-enabled", true);
     }
 
     public int codeExpireSeconds() {
@@ -132,5 +136,21 @@ public class Config {
 
     public int globalLinkLockoutSeconds() {
         return cfg.getInt("security.global-link-lockout-seconds", 120);
+    }
+
+    public String kickCommand() {
+        return cfg.getString("admin-commands.kick-command", "");
+    }
+
+    public String banCommand() {
+        return cfg.getString("admin-commands.ban-command", "");
+    }
+
+    public String unbanCommand() {
+        return cfg.getString("admin-commands.unban-command", "");
+    }
+
+    public String warnCommand() {
+        return cfg.getString("admin-commands.warn-command", "");
     }
 }

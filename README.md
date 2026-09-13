@@ -14,8 +14,7 @@ premium detection, with a safe fallback when it's not installed.
   buckets, and vehicles.
 - Optional FastLogin integration: licensed players skip the confirm step entirely once linked;
   cracked/offline accounts always confirm through Telegram. Works standalone without FastLogin.
-- Cracked ⇄ premium account migration (inventory, advancements, stats, OP) — off by default,
-  see [Security](#security) before enabling.
+- Cracked ⇄ premium account migration (inventory, advancements, stats, OP) — on by default.
 - Rate-limited link codes, parameterized SQL, no plaintext secrets in logs.
 - Fully translatable (`lang/*.yml`), config and language files auto-update on plugin updates.
 
@@ -26,6 +25,7 @@ premium detection, with a safe fallback when it's not installed.
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 - [FastLogin](https://www.spigotmc.org/resources/fastlogin.14153/) (optional, for hybrid
   premium+cracked servers)
+- [LuckPerms](https://luckperms.net/) (optional, for offline admin-panel permission checks)
 
 ## Building
 
@@ -67,7 +67,7 @@ logins, either instant (licensed + FastLogin confirmed) or a Confirm/Reject butt
 `config.yml` (defaults shown):
 
 ```yaml
-language: "ru"
+language: "en"
 
 telegram:
   bot-token: ""
@@ -80,14 +80,14 @@ auth:
   reminder-interval-seconds: 20
   apply-blindness: true
   apply-slowness: true
-  migrate-link-by-username: false      # see Security
-  migration-overwrite-existing-data: false
+  migrate-link-by-username: true
+  migration-overwrite-existing-data: true
+  cracked-ip-cooldown-seconds: 0
 
 fastlogin:
   enabled: true
   premium-skip-confirmation: true
   premium-check-wait-seconds: 4
-  add-to-fastlogin-premium-list: true
 
 storage:
   file: "database.db"
@@ -104,28 +104,85 @@ security:
 Language files live in `plugins/TgAuth/lang/`. Add a new `xx.yml` with the same keys and set
 `language: xx` to add a translation.
 
+## Trusted-IP cooldown for cracked accounts
+
+Set `auth.cracked-ip-cooldown-seconds` above 0 to let a cracked/offline account skip the
+Confirm/Reject request on reconnect, as long as it's from the same IP that confirmed recently.
+Off (`0`) by default — every login always requires confirming.
+
+Trust is scoped tightly to avoid it turning into a standing whitelist:
+- Reconnecting from a **different** IP still requires confirming as normal, and immediately
+  revokes the old trusted IP — it won't silently come back into play later.
+- If that same IP is later used to log into a **different** account, the original account's
+  trust is revoked too — a shared IP (NAT, VPN exit, family members) isn't uniquely tied to
+  either player anymore.
+
+A first-time `/link` also counts as a confirmed action and starts the trust immediately.
+
+## Bot admin panel
+
+Send `/admin` to the bot to open an inline-button panel (set `telegram.admin-panel-enabled:
+false` in `config.yml` to disable this entirely). Two ways to get access:
+- Your Telegram ID is listed in `telegram.admin-ids` in `config.yml`, **or**
+- Your Telegram is linked (`/link`) to a Minecraft account that has the `tgauth.admin`
+  permission. Checked live if you're online; if offline, checked via LuckPerms if it's
+  installed, otherwise falls back to OP status.
+
+Once in, the panel offers:
+- **Search player** — reply with a Minecraft name to open its account view.
+- **List accounts** — paginated browse of every linked account, 5 per page, tap a name to open
+  its account view.
+
+The account view shows Telegram ID, @username, and premium status, with action buttons:
+
+| Button | Effect |
+|---|---|
+| 🔗 Unlink | Remove the Telegram link (asks to confirm first) |
+| ⭐ Un-premium | Clears TgAuth's own premium flag and runs FastLogin's `/unpremium <name>` (if FastLogin is installed) so it drops them from its premium list too |
+| 👢 Kick | Prompts for a reason, then kicks if online |
+| 🔨 Ban | Prompts for a reason, then adds a name-ban and kicks if online |
+| ♻ Unban | Removes a name-ban |
+| ⚠ Warn | Prompts for a reason, then messages the player in-game if online |
+
+Kick/Warn ask for a reason as your next message before acting. Ban asks for a reason, then a
+duration (`1s`, `5m`, `2h`, `7d`, or `p` for permanent).
+
+Each of Kick/Ban/Unban/Warn can run a configured command instead of TgAuth's built-in Bukkit
+behavior — set `admin-commands.kick-command` / `ban-command` / `unban-command` / `warn-command`
+in `config.yml` if you use a dedicated punishment plugin (LiteBans, AdvancedBan, etc.). Warn
+in particular defaults to just messaging the player in-game; set `warn-command` if you want it
+to run your punishment plugin's own `/warn` instead. Placeholders: `%player%`, `%reason%`,
+`%duration%` (ban only). Leave blank to keep the built-in behavior.
+
+Get your numeric Telegram ID from a bot like `@userinfobot`.
+
 ## FastLogin integration
 
 FastLogin doesn't run any Mojang verification at all unless it's behind a proxy or has a
 registered "auth plugin" hook — otherwise you'll see `No auth plugin were found by this plugin`
 in its logs and it does nothing. TgAuth registers itself as that hook automatically on startup
 (via reflection, so it doesn't need FastLogin as a build dependency and tolerates version
-differences). Run `/tgauth fastlogin` to check whether it worked.
+differences). Run `/tgauth fastlogin` to check the status of everything below.
 
-**Requires `autoRegister: true` in FastLogin's own `config.yml`** (a FastLogin setting, separate
-from TgAuth's). Without it, FastLogin only checks premium status for names already registered
-with the hooked auth plugin — a brand-new player's very first connection never gets checked at
-all, since there's nothing registered for that name yet. If you've avoided `autoRegister`
-before because of password issues with LoginSecurity/AuthMe (it force-generates a real login
-password there), that doesn't apply to TgAuth: our `forceRegister` implementation ignores the
-password argument entirely — TgAuth has no concept of passwords, everything goes through
-Telegram, so there's nothing for a random generated password to break.
+Three settings in **FastLogin's own `config.yml`** (not TgAuth's) matter for a correctly
+working hybrid (premium + cracked) server — verified against
+[FastLogin's actual config.yml comments](https://github.com/games647/FastLogin/blob/main/core/src/main/resources/config.yml):
 
-As a secondary safety net, TgAuth also checks Mojang's public username API on a brand-new
-account's first `/link` and runs FastLogin's `/premium <name>` command if the name is owned by
-a real account — this doesn't grant trust by itself, it just nudges FastLogin to check, and only
-helps for accounts FastLogin already considers registered by that point (i.e. it complements
-`autoRegister`, it isn't a substitute for it).
+- **`autoRegister: true`** — without it, FastLogin never checks a brand-new
+  (never-before-registered) name's premium status at all. If you've avoided this before because
+  of password issues with LoginSecurity/AuthMe (it force-generates a real login password there),
+  that doesn't apply to TgAuth: our `forceRegister` implementation ignores the password argument
+  entirely — TgAuth has no concept of passwords, everything goes through Telegram.
+- **`secondAttemptCracked: true`** — with `autoRegister` on but this off, a genuinely cracked
+  player using a name FastLogin decides to check gets disconnected ("invalid session") and keeps
+  getting disconnected on every reconnect, since FastLogin re-attempts the premium handshake
+  every single time instead of remembering the name already failed once. Without this, cracked
+  players effectively can't use a hybrid server at all.
+- **`premiumUuid: true`** — without it, FastLogin does **not** switch a verified-premium
+  player's effective UUID to their real Mojang UUID; they keep the same offline/cracked UUID
+  regardless of verification. TgAuth's `auth.migrate-link-by-username` only has any effect when
+  a UUID actually changes between a cracked and a premium login for the same name — without
+  this setting, that never happens, so the feature is a no-op either way.
 
 Requires `online-mode: false` in `server.properties` — FastLogin performs its own per-player
 Mojang check.
@@ -136,13 +193,29 @@ Mojang check.
   6-digit code.
 - **Confirm/Reject buttons use a random 128-bit token** — not guessable, not replayable.
 - **All SQL is parameterized.**
-- **`auth.migrate-link-by-username` is off by default.** It re-links an account across a cracked
-  ⇄ premium UUID switch by matching username, which can't be cryptographically verified — a
-  cracked client can squat any free username. Enabling it means a player who registers first
-  under a squatted name could take over the real owner's account when they later connect with
-  their licensed account. Only enable this on a small/trusted/whitelisted server.
-- Player data migration files/inventory are never overwritten unless
-  `migration-overwrite-existing-data: true` is also set.
+- ([`JoinManagement.onLogin`](https://github.com/games647/FastLogin/blob/master/core/src/main/java/com/github/games647/fastlogin/core/shared/JoinManagement.java),
+  [`config.yml`](https://github.com/games647/FastLogin/blob/main/core/src/main/resources/config.yml)):
+  with `secondAttemptCracked: true` set (see FastLogin integration above), FastLogin keeps a
+  permanent per-username record — the first time a name fails Mojang verification, it's marked
+  cracked for good, and every later connection under that name skips straight to a cracked
+  session with no further Mojang attempt, regardless of who's actually connecting. So if someone
+  squats a free username while cracked, the real owner connecting later with their licensed
+  account gets the *same* UUID as the squatter (with `premiumUuid: true` also set, as required
+  for this feature to do anything at all — see above), not a different one — there's nothing to
+  migrate. Enabled by default on that basis, **provided both FastLogin settings above are set as
+  documented** — run `/tgauth fastlogin` to check.
+  **Narrow exception:** if an admin (or a player with `fastlogin.bukkit.command.premium`)
+  manually runs FastLogin's `/premium <name>` for a name that already has a squatted TgAuth
+  link, and the real owner happens to be the one connecting at that moment, a genuinely
+  different UUID *can* appear — and this setting would then migrate the link, squatted one
+  included. Check `/tgauth userinfo <name>` before manually running `/premium` for a name you
+  didn't link yourself.
+- Player data migration overwrites any playerdata/advancements/stats already present for the
+  destination UUID by default (`migration-overwrite-existing-data: true`) — safe on a fresh
+  server, or one where TgAuth/FastLogin were set up from day one, since a migration only ever
+  targets a UUID being recognised as premium for the first time. Turn it off if you added this
+  setup to an already-running server where players already had real progress under their own
+  premium UUIDs.
 
 Report anything else you find.
 

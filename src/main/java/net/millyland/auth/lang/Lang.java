@@ -35,8 +35,8 @@ public class Lang {
 
         File target = new File(langDir, code + ".yml");
         if (!target.exists()) {
-            plugin.getLogger().warning("Language file lang/" + code + ".yml not found, falling back to ru.yml");
-            target = new File(langDir, "ru.yml");
+            plugin.getLogger().warning("Language file lang/" + code + ".yml not found, falling back to en.yml");
+            target = new File(langDir, "en.yml");
         }
 
         this.messages = YamlConfiguration.loadConfiguration(target);

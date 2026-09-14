@@ -190,9 +190,7 @@ Mojang check.
 - **All SQL is parameterized.**
 - ([`JoinManagement.onLogin`](https://github.com/games647/FastLogin/blob/master/core/src/main/java/com/github/games647/fastlogin/core/shared/JoinManagement.java),
   [`config.yml`](https://github.com/games647/FastLogin/blob/main/core/src/main/resources/config.yml)):
-  with `secondAttemptCracked: true` set (see FastLogin integration above), FastLogin keeps a
-  permanent per-username record — the first time a name fails Mojang verification, it's marked
-  cracked for good, and every later connection under that name skips straight to a cracked
+FastLogin keeps apermanent per-username record — the first time a name fails Mojang verification, it's marked cracked for good, and every later connection under that name skips straight to a cracked
   session with no further Mojang attempt, regardless of who's actually connecting. So if someone
   squats a free username while cracked, the real owner connecting later with their licensed
   account gets the *same* UUID as the squatter (with `premiumUuid: true` also set, as required

@@ -173,11 +173,6 @@ working hybrid (premium + cracked) server — verified against
   of password issues with LoginSecurity/AuthMe (it force-generates a real login password there),
   that doesn't apply to TgAuth: our `forceRegister` implementation ignores the password argument
   entirely — TgAuth has no concept of passwords, everything goes through Telegram.
-- **`secondAttemptCracked: true`** — with `autoRegister` on but this off, a genuinely cracked
-  player using a name FastLogin decides to check gets disconnected ("invalid session") and keeps
-  getting disconnected on every reconnect, since FastLogin re-attempts the premium handshake
-  every single time instead of remembering the name already failed once. Without this, cracked
-  players effectively can't use a hybrid server at all.
 - **`premiumUuid: true`** — without it, FastLogin does **not** switch a verified-premium
   player's effective UUID to their real Mojang UUID; they keep the same offline/cracked UUID
   regardless of verification. TgAuth's `auth.migrate-link-by-username` only has any effect when
